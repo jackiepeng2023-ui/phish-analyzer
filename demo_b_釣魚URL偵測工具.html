@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<!--
+=====================================================================
+  Demo B：釣魚網站即時偵測工具（純防禦端）
+  逢甲大學資工系學士後專班 — 資訊安全期末報告
+  作者：彭禹翔
+---------------------------------------------------------------------
+  說明：
+  - 輸入一個 URL，本工具用「規則 + 特徵」評估其釣魚風險，並列出理由。
+  - 全部判斷在瀏覽器本機完成，不連網、不上傳。
+  - 「請 AI 幫我分析」按鈕：不內嵌任何 API 金鑰（內嵌金鑰是嚴重資安錯誤），
+    而是「自動產生一段分析 Prompt」讓你複製，貼到 Claude / ChatGPT / Gemini
+    進行語義分析 —— 這同時示範了正確的 Prompt Engineering。
+=====================================================================
+-->
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Demo B — 釣魚 URL 偵測工具</title>
+<style>
+  :root{
+    --bg:#0e1116;
+    --panel:#161b22;
+    --panel2:#1c232c;
+    --line:#2a323c;
+    --ink:#e6edf3;
+    --dim:#8b97a4;
+    --accent:#58a6ff;
+    --safe:#3fb950;
+    --warn:#d29922;
+    --danger:#f85149;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Noto Sans Mono CJK TC",monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:var(--sans);background:var(--bg);color:var(--ink);line-height:1.6;padding:24px}
+  .wrap{max-width:880px;margin:0 auto}
+
+  header{margin-bottom:8px}
+  .kicker{font-family:var(--mono);color:var(--accent);font-size:13px;letter-spacing:2px;text-transform:uppercase}
+  h1{font-size:26px;margin:6px 0 4px}
+  .lead{color:var(--dim);font-size:15px;max-width:640px}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px;margin-top:20px}
+
+  .input-row{display:flex;gap:10px;flex-wrap:wrap}
+  .input-row input{
+    flex:1;min-width:240px;background:#0b0f14;border:1px solid var(--line);color:var(--ink);
+    border-radius:10px;padding:13px 14px;font-family:var(--mono);font-size:14px;outline:none;
+  }
+  .input-row input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(88,166,255,.15)}
+  .btn{
+    border:none;border-radius:10px;padding:13px 20px;cursor:pointer;font-weight:700;
+    font-family:var(--sans);font-size:14px;transition:.15s;white-space:nowrap;
+  }
+  .btn-main{background:var(--accent);color:#06121f}
+  .btn-main:hover{background:#79b8ff}
+  .btn-ghost{background:#1f2630;color:var(--ink);border:1px solid var(--line)}
+  .btn-ghost:hover{background:#2a333f}
+
+  .samples{margin-top:14px;font-size:13px;color:var(--dim)}
+  .samples span{
+    display:inline-block;background:#11161d;border:1px solid var(--line);border-radius:7px;
+    padding:4px 9px;margin:4px 6px 0 0;font-family:var(--mono);font-size:12px;color:#b9c4d0;
+    cursor:pointer;transition:.12s;
+  }
+  .samples span:hover{border-color:var(--accent);color:#fff}
+
+  /* 評分結果 */
+  #result{display:none;margin-top:20px}
+  #result.show{display:block;animation:fade .3s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+  .verdict{display:flex;align-items:center;gap:18px;padding:18px 20px;border-radius:12px;border:1px solid}
+  .verdict .gauge{
+    width:74px;height:74px;border-radius:50%;display:grid;place-items:center;flex-shrink:0;
+    font-family:var(--mono);font-weight:800;font-size:22px;position:relative;
+  }
+  .verdict .vtext .lvl{font-size:20px;font-weight:800}
+  .verdict .vtext .sub{color:var(--dim);font-size:13px}
+  .v-safe{background:rgba(63,185,80,.08);border-color:rgba(63,185,80,.4)}
+  .v-safe .gauge{background:rgba(63,185,80,.15);color:var(--safe)}
+  .v-safe .lvl{color:var(--safe)}
+  .v-warn{background:rgba(210,153,34,.08);border-color:rgba(210,153,34,.4)}
+  .v-warn .gauge{background:rgba(210,153,34,.15);color:var(--warn)}
+  .v-warn .lvl{color:var(--warn)}
+  .v-danger{background:rgba(248,81,73,.08);border-color:rgba(248,81,73,.4)}
+  .v-danger .gauge{background:rgba(248,81,73,.15);color:var(--danger)}
+  .v-danger .lvl{color:var(--danger)}
+
+  .reasons{margin-top:18px}
+  .reasons h3{font-size:14px;color:var(--dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px}
+  .reason{
+    display:flex;gap:12px;align-items:flex-start;background:var(--panel2);
+    border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:9px;
+  }
+  .reason .ic{font-size:16px;line-height:1.4}
+  .reason.hit{border-left:3px solid var(--danger)}
+  .reason.pass{border-left:3px solid var(--safe);opacity:.75}
+  .reason .body .t{font-weight:700;font-size:14px}
+  .reason .body .d{color:var(--dim);font-size:13px}
+  .reason .w{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--dim);white-space:nowrap}
+
+  .ai-box{margin-top:18px;background:#0b0f14;border:1px dashed var(--accent);border-radius:12px;padding:16px}
+  .ai-box h3{font-size:14px;margin-bottom:8px;color:var(--accent)}
+  .ai-box p{font-size:13px;color:var(--dim);margin-bottom:12px}
+  #aiPrompt{
+    width:100%;height:180px;background:#06090d;border:1px solid var(--line);border-radius:9px;
+    color:#c9d4e0;font-family:var(--mono);font-size:12.5px;padding:12px;resize:vertical;line-height:1.6;
+  }
+  .copy-hint{font-size:12px;color:var(--safe);margin-top:8px;display:none}
+  .copy-hint.show{display:block}
+
+  footer{margin-top:24px;text-align:center;color:#5a6573;font-size:12px;font-family:var(--mono);line-height:1.7}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="kicker">Defensive Tool</div>
+    <h1>釣魚 URL 偵測工具</h1>
+    <p class="lead">貼上一個網址，工具會用「規則 + 特徵」評估它有多像釣魚網站，並逐項列出判斷理由。所有運算都在你的瀏覽器完成，不會連網。</p>
+  </header>
+
+  <div class="card">
+    <div class="input-row">
+      <input id="url" type="text" placeholder="貼上要檢查的網址，例如 http://example.com/login" spellcheck="false">
+      <button class="btn btn-main" onclick="analyze()">分析</button>
+    </div>
+    <div class="samples">
+      點一下試試這些範例（皆為虛構教學用途）：
+      <span onclick="setSample(this)">https://www.google.com</span>
+      <span onclick="setSample(this)">http://paypal-secure.account-update.xyz/login</span>
+      <span onclick="setSample(this)">http://192.168.10.4/bank/verify</span>
+      <span onclick="setSample(this)">https://bit.ly/3xK9aZ</span>
+      <span onclick="setSample(this)">https://app1e-id.support-verify-login.com</span>
+    </div>
+
+    <div id="result">
+      <div class="verdict" id="verdict">
+        <div class="gauge" id="gauge">0</div>
+        <div class="vtext">
+          <div class="lvl" id="lvl">—</div>
+          <div class="sub" id="sub"></div>
+        </div>
+      </div>
+
+      <div class="reasons">
+        <h3>判斷依據（特徵逐項檢查）</h3>
+        <div id="reasonList"></div>
+      </div>
+
+      <div class="ai-box">
+        <h3>🤖 請 AI 幫我做語義分析</h3>
+        <p>規則只能看「結構」，AI 可以看「語意與情境」。下面已自動為這個網址產生一段分析 Prompt，複製後貼到 Claude / ChatGPT / Gemini 即可。（本工具刻意不內嵌 API 金鑰——把金鑰寫進前端網頁是嚴重的資安錯誤。）</p>
+        <textarea id="aiPrompt" readonly></textarea>
+        <button class="btn btn-ghost" style="margin-top:10px" onclick="copyPrompt()">📋 複製 Prompt</button>
+        <div class="copy-hint" id="copyHint">已複製，貼到你的 AI 助手即可！</div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    純防禦端教學工具 · 本機運算 · 不連網 · 不蒐集資料<br>
+    規則式偵測為輔助參考，最終仍應以官方來源與多重驗證為準
+  </footer>
+</div>
+
+<script>
+/* =====================================================================
+   規則式釣魚 URL 偵測引擎
+   每條規則回傳 { hit:布林, weight:權重, title, desc }
+   分數越高＝越可疑。這是「白箱」可解釋模型，方便教學。
+   ===================================================================== */
+
+// 常被冒用的知名品牌字（用於偵測「品牌名出現在子網域/路徑而非主網域」）
+const BRANDS = ['paypal','google','apple','appie','app1e','microsoft','facebook',
+  'amazon','line','bank','chase','netflix','instagram','icloud','office365'];
+// 高風險關鍵字（製造急迫/驗證情境）
+const KEYWORDS = ['login','signin','verify','secure','account','update','confirm',
+  'password','webscr','banking','wallet','suspend','unlock'];
+// 常見的 URL 短網址服務
+const SHORTENERS = ['bit.ly','tinyurl.com','goo.gl','t.co','is.gd','ow.ly','reurl.cc','pse.is'];
+// 高風險／常被濫用的免費 TLD
+const RISKY_TLDS = ['.xyz','.top','.tk','.ml','.ga','.cf','.gq','.work','.click','.zip','.mov'];
+
+function parseUrl(raw){
+  // 容錯：沒寫 scheme 時補上 http:// 以利解析
+  let s = raw.trim();
+  if(!/^https?:\/\//i.test(s)) s = 'http://' + s;
+  try{ return new URL(s); }catch(e){ return null; }
+}
+
+function runRules(raw){
+  const u = parseUrl(raw);
+  const rules = [];
+  if(!u){
+    return {error:true};
+  }
+  const host = u.hostname.toLowerCase();
+  const full = raw.toLowerCase();
+  const parts = host.split('.');
+  const tld = '.' + parts[parts.length-1];
+
+  // 1. 是否使用 HTTPS
+  rules.push({
+    id:'https', weight:15,
+    hit: u.protocol !== 'https:',
+    title:'缺少 HTTPS 加密',
+    desc: u.protocol!=='https:' ? '使用 http://，登入頁卻不加密，極度可疑。' : '使用 https://，連線有加密。'
+  });
+
+  // 2. 是否為 IP 位址而非網域
+  const isIP = /^\d{1,3}(\.\d{1,3}){3}$/.test(host);
+  rules.push({
+    id:'ip', weight:25, hit:isIP,
+    title:'直接使用 IP 位址',
+    desc: isIP ? '正規服務幾乎不會用裸 IP 當登入網址，常見於臨時架設的釣魚站。' : '使用網域名稱而非 IP。'
+  });
+
+  // 3. 網址含有 @ 符號（瀏覽器會忽略 @ 前的內容，是經典騙術）
+  const hasAt = raw.includes('@');
+  rules.push({
+    id:'at', weight:20, hit:hasAt,
+    title:'網址含有 "@" 符號',
+    desc: hasAt ? '瀏覽器只認 @ 之後的主機，攻擊者用它把真實惡意網域藏在後面。' : '網址未使用 @ 混淆。'
+  });
+
+  // 4. 子網域數量過多（用一堆子網域堆出可信字眼）
+  const subCount = Math.max(0, parts.length - 2);
+  const tooManySub = subCount >= 3;
+  rules.push({
+    id:'sub', weight:15, hit:tooManySub,
+    title:'子網域層數過多',
+    desc: tooManySub ? `偵測到 ${subCount} 層子網域，常被用來堆砌「看起來可信」的字串。` : `子網域層數正常（${subCount} 層）。`
+  });
+
+  // 5. 品牌名出現在子網域/路徑，但不是主網域 ★ 釣魚最強特徵
+  const registrable = parts.slice(-2).join('.'); // 簡化：取最後兩段當主網域
+  let brandHit = false, brandName='';
+  for(const b of BRANDS){
+    if(full.includes(b) && !registrable.includes(b)){ brandHit=true; brandName=b; break; }
+  }
+  rules.push({
+    id:'brand', weight:30, hit:brandHit,
+    title:'品牌名出現在非主網域位置',
+    desc: brandHit ? `網址出現「${brandName}」，但它不在主網域（真正網域是 ${registrable}）——典型冒名。` : '未發現品牌名被塞在子網域/路徑的情形。'
+  });
+
+  // 6. 高風險關鍵字
+  const kwFound = KEYWORDS.filter(k => full.includes(k));
+  rules.push({
+    id:'kw', weight:10, hit:kwFound.length>=2,
+    title:'含多個高風險關鍵字',
+    desc: kwFound.length ? `偵測到：${kwFound.join(', ')}。釣魚常用「驗證/安全/帳號」製造情境。` : '未發現明顯的高風險關鍵字。'
+  });
+
+  // 7. 網址過長
+  const tooLong = raw.length > 75;
+  rules.push({
+    id:'len', weight:8, hit:tooLong,
+    title:'網址異常冗長',
+    desc: tooLong ? `長度 ${raw.length} 字元，過長網址常用來隱藏真實目的地。` : `網址長度正常（${raw.length} 字元）。`
+  });
+
+  // 8. 高風險 TLD
+  const riskyTld = RISKY_TLDS.includes(tld);
+  rules.push({
+    id:'tld', weight:15, hit:riskyTld,
+    title:'使用高風險頂級網域',
+    desc: riskyTld ? `頂級網域 ${tld} 常因可免費/低價申請而被釣魚大量濫用。` : `頂級網域 ${tld} 風險較低。`
+  });
+
+  // 9. 短網址
+  const isShort = SHORTENERS.some(s => host.endsWith(s));
+  rules.push({
+    id:'short', weight:12, hit:isShort,
+    title:'使用短網址服務',
+    desc: isShort ? '短網址會隱藏真實目的地，點擊前無法判斷會被導向哪裡。' : '非短網址。'
+  });
+
+  // 10. 疑似仿冒拼字 / Punycode（IDN 同形異義攻擊）
+  const punycode = host.includes('xn--');
+  const typo = /\d/.test(host.replace(/\.\w+$/,'')) && BRANDS.some(b=>{
+    // 例如 app1e、g00gle 這類數字替代字母
+    const leetMap = host.replace(/0/g,'o').replace(/1/g,'l').replace(/3/g,'e');
+    return leetMap.includes(b);
+  });
+  rules.push({
+    id:'idn', weight:18, hit:(punycode||typo),
+    title:'疑似同形/拼字仿冒',
+    desc: (punycode||typo) ? '偵測到 Punycode 或數字替代字母（如 app1e、g00gle），用來模仿真品牌。' : '未發現明顯的同形或拼字仿冒。'
+  });
+
+  const score = rules.reduce((s,r)=> s + (r.hit ? r.weight : 0), 0);
+  return {error:false, score, rules, registrable};
+}
+
+/* ---------- UI 呈現 ---------- */
+function analyze(){
+  const raw = document.getElementById('url').value;
+  if(!raw.trim()){ alert('請先輸入一個網址。'); return; }
+
+  const r = runRules(raw);
+  const result = document.getElementById('result');
+  result.classList.add('show');
+
+  if(r.error){
+    document.getElementById('verdict').className = 'verdict v-warn';
+    document.getElementById('gauge').textContent = '?';
+    document.getElementById('lvl').textContent = '無法解析';
+    document.getElementById('sub').textContent = '這不是一個有效的網址格式。';
+    document.getElementById('reasonList').innerHTML = '';
+    document.getElementById('aiPrompt').value = '';
+    return;
+  }
+
+  const score = Math.min(100, r.score);
+  // 風險分級
+  let cls, lvl, sub;
+  if(score >= 50){ cls='v-danger'; lvl='高風險：很可能是釣魚網站'; sub='請勿輸入任何帳號密碼，建議直接關閉。'; }
+  else if(score >= 20){ cls='v-warn'; lvl='中度可疑：請提高警覺'; sub='存在多個風險特徵，務必再次確認來源。'; }
+  else { cls='v-safe'; lvl='風險較低'; sub='未發現明顯釣魚特徵，但仍請自行核對官方網址。'; }
+
+  document.getElementById('verdict').className = 'verdict ' + cls;
+  document.getElementById('gauge').textContent = score;
+  document.getElementById('lvl').textContent = lvl;
+  document.getElementById('sub').textContent = sub;
+
+  // 逐項理由（命中的排前面）
+  const sorted = [...r.rules].sort((a,b)=> (b.hit?1:0)-(a.hit?1:0) || b.weight-a.weight);
+  document.getElementById('reasonList').innerHTML = sorted.map(rule=>`
+    <div class="reason ${rule.hit?'hit':'pass'}">
+      <div class="ic">${rule.hit?'🚩':'✅'}</div>
+      <div class="body">
+        <div class="t">${rule.title}</div>
+        <div class="d">${rule.desc}</div>
+      </div>
+      <div class="w">${rule.hit?'+'+rule.weight:'0'}</div>
+    </div>`).join('');
+
+  // 自動產生給 AI 的分析 Prompt
+  buildPrompt(raw, score, sorted.filter(x=>x.hit));
+}
+
+function buildPrompt(url, score, hits){
+  const hitList = hits.length
+    ? hits.map(h=>`- ${h.title}：${h.desc}`).join('\n')
+    : '- （規則未命中明顯特徵）';
+  const p =
+`你是一位資安分析師。請判斷以下網址是否可能是釣魚網站，並用「計算機概論程度的學生」也能懂的方式說明。
+
+【待分析網址】
+${url}
+
+【規則式工具的初步結果】
+風險分數：${score} / 100
+命中的可疑特徵：
+${hitList}
+
+請完成：
+1. 綜合判斷：這個網址的釣魚可能性（低 / 中 / 高），並說明你的理由。
+2. 從「語意與情境」角度補充規則看不出來的線索（例如品牌仿冒意圖、心理操弄話術）。
+3. 給一般使用者 3 個可立即執行的自保建議。
+4. 請務必保持中立、教育導向，不要提供任何可用於實際攻擊的內容。`;
+  document.getElementById('aiPrompt').value = p;
+}
+
+function copyPrompt(){
+  const ta = document.getElementById('aiPrompt');
+  ta.select();
+  try{ document.execCommand('copy'); }catch(e){}
+  if(navigator.clipboard){ navigator.clipboard.writeText(ta.value).catch(()=>{}); }
+  const hint = document.getElementById('copyHint');
+  hint.classList.add('show');
+  setTimeout(()=>hint.classList.remove('show'), 2500);
+}
+
+function setSample(el){
+  document.getElementById('url').value = el.textContent;
+  analyze();
+}
+</script>
+</body>
+</html>

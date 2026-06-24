@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<!--
+=====================================================================
+  Demo A：釣魚網站模擬器 + 即時警示系統（教育用途）
+  逢甲大學資工系學士後專班 — 資訊安全期末報告
+  作者：彭禹翔
+---------------------------------------------------------------------
+  【本檔案的安全設計原則 — 請務必閱讀】
+  1. 品牌「CloudVault 雲端帳戶中心」純屬虛構，不模仿任何真實服務。
+  2. 全程在你的瀏覽器內執行：沒有 fetch、沒有 form action、沒有任何
+     網路請求。你輸入的任何文字「不會」離開你的裝置、不會被儲存、
+     不會被傳送到任何伺服器。
+  3. 右側「攻擊者視角」只是用 JavaScript 把同一頁的輸入鏡射顯示出來，
+     用來「演示」攻擊者能看到什麼，本身不具備竊取或外傳能力。
+  4. 目的是教學生「辨識」與「防禦」釣魚，不是製作可部署的攻擊工具。
+=====================================================================
+-->
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Demo A — 釣魚網站模擬器（教育用途）</title>
+<style>
+  /* ---------- 設計 Token ---------- */
+  :root{
+    /* 誘餌側（刻意做得「看起來可信」，這正是教學重點） */
+    --bait-bg:#f4f7fb;
+    --bait-card:#ffffff;
+    --bait-ink:#1c2733;
+    --bait-sub:#5b6b7b;
+    --bait-brand:#2563d6;     /* 企業藍，營造信任感 */
+    --bait-line:#e2e8f0;
+
+    /* 攻擊者側（鑑識主控台風格） */
+    --atk-bg:#0d1117;
+    --atk-panel:#161b22;
+    --atk-line:#262d36;
+    --atk-ink:#e6edf3;
+    --atk-dim:#7d8590;
+    --atk-go:#3fb950;         /* 成功竊取＝綠色終端機 */
+    --atk-hot:#ff5c57;        /* 危險紅 */
+
+    /* 警示 */
+    --warn:#ffcc00;
+    --warn-ink:#1a1400;
+    --danger:#d8232a;
+
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Cascadia Code","Noto Sans Mono CJK TC",monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:var(--sans);
+    background:#0a0c10;
+    color:var(--bait-ink);
+    line-height:1.5;
+  }
+
+  /* ---------- 頂部教育警示橫幅（仿瀏覽器安全警告） ---------- */
+  .edu-banner{
+    background:repeating-linear-gradient(45deg,var(--warn),var(--warn) 18px,#1a1400 18px,#1a1400 36px);
+    padding:3px;
+  }
+  .edu-banner-inner{
+    background:var(--warn);
+    color:var(--warn-ink);
+    padding:10px 18px;
+    font-weight:800;
+    font-size:14px;
+    display:flex;gap:10px;align-items:center;justify-content:center;
+    text-align:center;flex-wrap:wrap;
+  }
+  .edu-banner-inner b{text-transform:uppercase;letter-spacing:.5px}
+
+  /* ---------- 假的瀏覽器網址列（教 URL 判讀） ---------- */
+  .fake-browser{
+    background:#e9edf2;border-bottom:1px solid #cdd5df;
+    padding:8px 14px;display:flex;gap:10px;align-items:center;
+  }
+  .dots{display:flex;gap:6px}
+  .dots span{width:11px;height:11px;border-radius:50%;background:#c4ccd6}
+  .urlbar{
+    flex:1;background:#fff;border:1px solid #cdd5df;border-radius:8px;
+    padding:6px 12px;font-family:var(--mono);font-size:13px;
+    display:flex;align-items:center;gap:8px;color:#3a4654;
+    overflow:hidden;
+  }
+  .urlbar .lock{color:#888}
+  .urlbar .danger-host{background:#ffe2e2;color:#b71c1c;border-radius:4px;padding:0 3px;font-weight:700}
+  .url-flag{
+    font-family:var(--sans);font-size:11px;color:#b71c1c;
+    background:#fff0f0;border:1px dashed #f3b4b4;border-radius:6px;
+    padding:3px 8px;white-space:nowrap;
+  }
+
+  /* ---------- 主版面：左右「兩個現實」 ---------- */
+  .stage{display:grid;grid-template-columns:1fr 1fr;min-height:520px}
+  @media(max-width:880px){.stage{grid-template-columns:1fr}}
+
+  /* === 左側：誘餌登入頁 === */
+  .bait{
+    background:var(--bait-bg);padding:42px 34px;
+    display:flex;flex-direction:column;align-items:center;
+    position:relative;
+  }
+  .bait::after{ /* 浮水印，提醒這是範例 */
+    content:"範例 SAMPLE";position:absolute;inset:0;
+    display:flex;align-items:center;justify-content:center;
+    font-size:64px;font-weight:900;color:rgba(37,99,214,.05);
+    transform:rotate(-18deg);pointer-events:none;letter-spacing:8px;
+  }
+  .brand{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+  .brand-logo{
+    width:34px;height:34px;border-radius:9px;
+    background:linear-gradient(135deg,var(--bait-brand),#5b8def);
+    display:grid;place-items:center;color:#fff;font-weight:900;font-size:18px;
+  }
+  .brand-name{font-size:20px;font-weight:800;color:var(--bait-ink)}
+  .bait h2{font-size:22px;margin:18px 0 4px;color:var(--bait-ink)}
+  .bait p.sub{color:var(--bait-sub);font-size:14px;margin-bottom:22px}
+  .login-card{
+    background:var(--bait-card);width:100%;max-width:340px;
+    border:1px solid var(--bait-line);border-radius:14px;
+    padding:24px;box-shadow:0 10px 30px rgba(28,39,51,.08);
+    position:relative;z-index:1;
+  }
+  .field{margin-bottom:14px}
+  .field label{display:block;font-size:13px;font-weight:600;color:var(--bait-sub);margin-bottom:6px}
+  .field input{
+    width:100%;padding:11px 12px;border:1px solid var(--bait-line);
+    border-radius:9px;font-size:14px;font-family:var(--sans);outline:none;
+    transition:border-color .15s,box-shadow .15s;
+  }
+  .field input:focus{border-color:var(--bait-brand);box-shadow:0 0 0 3px rgba(37,99,214,.12)}
+  .btn-login{
+    width:100%;padding:12px;border:none;border-radius:9px;cursor:pointer;
+    background:var(--bait-brand);color:#fff;font-size:15px;font-weight:700;
+    font-family:var(--sans);transition:background .15s;
+  }
+  .btn-login:hover{background:#1d52b8}
+  .bait-foot{font-size:12px;color:var(--bait-sub);margin-top:14px;text-align:center}
+  .bait-foot a{color:var(--bait-brand);text-decoration:none}
+
+  /* === 右側：攻擊者主控台 === */
+  .attacker{
+    background:var(--atk-bg);color:var(--atk-ink);
+    font-family:var(--mono);padding:26px 24px;display:flex;flex-direction:column;
+  }
+  .atk-head{display:flex;align-items:center;gap:9px;margin-bottom:4px}
+  .atk-dot{width:9px;height:9px;border-radius:50%;background:var(--atk-hot);box-shadow:0 0 8px var(--atk-hot)}
+  .atk-title{color:var(--atk-hot);font-weight:700;font-size:13px;letter-spacing:1px}
+  .atk-desc{color:var(--atk-dim);font-size:12px;margin-bottom:18px}
+  .atk-block{
+    background:var(--atk-panel);border:1px solid var(--atk-line);border-radius:10px;
+    padding:14px 16px;margin-bottom:14px;
+  }
+  .atk-label{color:var(--atk-dim);font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
+  .atk-value{font-size:15px;word-break:break-all;min-height:20px}
+  .atk-value.empty{color:#3a424c;font-style:italic}
+  .atk-value .blink{animation:blink 1s step-end infinite}
+  @keyframes blink{50%{opacity:0}}
+  .atk-meta{font-size:11px;color:var(--atk-dim);line-height:1.7}
+  .atk-meta .ok{color:var(--atk-go)}
+  .keystroke-log{
+    background:#05080c;border:1px solid var(--atk-line);border-radius:10px;
+    padding:12px 14px;font-size:12px;color:var(--atk-go);height:96px;overflow:auto;
+    white-space:pre-wrap;line-height:1.7;
+  }
+  .captured-flash{animation:flash .6s ease}
+  @keyframes flash{0%{background:#3fb95033}100%{background:transparent}}
+
+  /* ---------- 下方教育區塊 ---------- */
+  .lesson{
+    background:#0f1318;border-top:3px solid var(--danger);
+    color:#dbe2ea;padding:26px 30px;
+  }
+  .lesson h3{color:#fff;font-size:17px;margin-bottom:14px;display:flex;gap:8px;align-items:center}
+  .lesson-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+  .flag-card{
+    background:#161b22;border:1px solid #262d36;border-left:3px solid var(--warn);
+    border-radius:9px;padding:14px 16px;
+  }
+  .flag-card .n{color:var(--warn);font-family:var(--mono);font-weight:700;font-size:12px}
+  .flag-card .t{font-weight:700;margin:4px 0;color:#fff;font-size:14px}
+  .flag-card .d{font-size:13px;color:#9aa6b2;line-height:1.6}
+  .toolbar{display:flex;gap:12px;flex-wrap:wrap;margin-top:22px}
+  .tool-btn{
+    background:#1f2630;border:1px solid #313a45;color:#dbe2ea;
+    padding:10px 18px;border-radius:9px;cursor:pointer;font-size:14px;
+    font-family:var(--sans);font-weight:600;transition:.15s;
+  }
+  .tool-btn:hover{background:#2a333f;border-color:#475061}
+  .tool-btn.reset{border-color:#5a3a3a;color:#ffb4b4}
+
+  /* ---------- 「攻擊成功後」說明條 ---------- */
+  .post-attack{
+    display:none;background:#241414;border:1px solid #5a2a2a;border-radius:10px;
+    padding:14px 18px;margin-top:18px;color:#ffd9d9;font-size:13px;line-height:1.7;
+  }
+  .post-attack.show{display:block}
+  .post-attack b{color:#ff8a85}
+
+  /* ---------- 原始碼 Modal ---------- */
+  .modal{
+    display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);
+    z-index:50;padding:30px;overflow:auto;
+  }
+  .modal.show{display:block}
+  .modal-box{
+    max-width:860px;margin:0 auto;background:#0d1117;border:1px solid #2a323c;
+    border-radius:14px;overflow:hidden;
+  }
+  .modal-head{
+    background:#161b22;padding:14px 20px;display:flex;justify-content:space-between;
+    align-items:center;border-bottom:1px solid #2a323c;
+  }
+  .modal-head h4{color:#fff;font-size:15px}
+  .modal-close{background:none;border:none;color:#9aa6b2;font-size:22px;cursor:pointer}
+  .modal-body{padding:20px}
+  .modal-body p{color:#9aa6b2;font-size:13px;margin-bottom:14px;line-height:1.7}
+  pre{
+    background:#05080c;border:1px solid #2a323c;border-radius:9px;
+    padding:16px;overflow:auto;font-family:var(--mono);font-size:12.5px;
+    color:#c9d4e0;line-height:1.7;
+  }
+  pre .cmt{color:#6a7685}
+  pre .hot{color:#ff8a85}
+  pre .grn{color:#7ee787}
+
+  .footer-note{
+    background:#05080c;color:#5a6573;font-size:11.5px;text-align:center;
+    padding:14px;font-family:var(--mono);line-height:1.7;
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ 教育警示橫幅 ============ -->
+<div class="edu-banner">
+  <div class="edu-banner-inner">
+    <span>⚠️</span>
+    <span><b>教育模擬</b>｜這是釣魚攻擊「示範頁」。在真實攻擊中，你在左側輸入的帳密會被即時送往攻擊者。本頁所有資料只留在你的瀏覽器，零外傳。</span>
+  </div>
+</div>
+
+<!-- ============ 假網址列（教 URL 判讀） ============ -->
+<div class="fake-browser">
+  <div class="dots"><span></span><span></span><span></span></div>
+  <div class="urlbar">
+    <span class="lock">🔓</span>
+    <span>http://cloudvault-<span class="danger-host">secure-login.account-verify.xyz</span>/signin?ref=mail</span>
+  </div>
+  <span class="url-flag">👀 注意：真正的網域是 account-verify.xyz，不是 cloudvault</span>
+</div>
+
+<!-- ============ 主舞台：左誘餌 / 右攻擊者 ============ -->
+<div class="stage">
+
+  <!-- 左：誘餌登入頁 -->
+  <div class="bait">
+    <div class="brand">
+      <div class="brand-logo">C</div>
+      <div class="brand-name">CloudVault</div>
+    </div>
+    <h2>登入您的雲端帳戶</h2>
+    <p class="sub">為保障帳戶安全，請重新驗證您的身分</p>
+
+    <div class="login-card">
+      <!-- 注意：form 沒有 action，按鈕是 type=button，不會送出任何請求 -->
+      <div class="field">
+        <label for="email">電子郵件或帳號</label>
+        <input type="text" id="email" autocomplete="off" placeholder="you@example.com"
+               oninput="mirror()">
+      </div>
+      <div class="field">
+        <label for="pwd">密碼</label>
+        <input type="password" id="pwd" autocomplete="off" placeholder="請輸入密碼"
+               oninput="mirror()">
+      </div>
+      <button class="btn-login" onclick="capture()">登入</button>
+      <div class="bait-foot">
+        忘記密碼？ <a href="javascript:void(0)" onclick="return false">點此重設</a>
+      </div>
+    </div>
+
+    <div class="post-attack" id="postAttack">
+      <b>攻擊已「完成」（模擬）。</b> 在真實攻擊中，此刻你的帳密已送達攻擊者，
+      接著網頁通常會把你<b>轉址到真正的官網</b>，讓你以為「只是輸入錯誤」，
+      於是你毫無警覺地重新登入真網站 —— 攻擊者就此安然取得憑證。
+    </div>
+  </div>
+
+  <!-- 右：攻擊者主控台 -->
+  <div class="attacker">
+    <div class="atk-head">
+      <span class="atk-dot"></span>
+      <span class="atk-title">ATTACKER CONSOLE // 攻擊者視角（模擬）</span>
+    </div>
+    <div class="atk-desc">攻擊者只需要這段 JavaScript，就能即時看見你打的每一個字：</div>
+
+    <div class="atk-block">
+      <div class="atk-label">擷取到的帳號</div>
+      <div class="atk-value empty" id="capEmail">（等待受害者輸入…）</div>
+    </div>
+    <div class="atk-block">
+      <div class="atk-label">擷取到的密碼（明文）</div>
+      <div class="atk-value empty" id="capPwd">（等待受害者輸入…）</div>
+    </div>
+
+    <div class="atk-block">
+      <div class="atk-label">即時鍵盤側錄 keystroke log</div>
+      <div class="keystroke-log" id="log">// 監聽中<span class="blink">_</span></div>
+    </div>
+
+    <div class="atk-meta" id="meta">
+      狀態：<span style="color:var(--atk-hot)">尚未送出</span><br>
+      若這是真實攻擊，下一步會：<br>
+      &nbsp;&nbsp;→ 將上述資料 POST 到攻擊者伺服器<br>
+      &nbsp;&nbsp;→ 自動嘗試登入真正的服務<br>
+      &nbsp;&nbsp;→ 把受害者轉址到真網站以免起疑
+    </div>
+  </div>
+</div>
+
+<!-- ============ 下方：教育拆解區 ============ -->
+<div class="lesson">
+  <h3>🛡️ 你「本來應該」察覺的破綻（防禦重點）</h3>
+  <div class="lesson-grid">
+    <div class="flag-card">
+      <div class="n">破綻 01</div>
+      <div class="t">網域名稱不對</div>
+      <div class="d">真正的網域是「account-verify.xyz」，CloudVault 只是被塞在子網域裡騙你。永遠從右往左讀網域。</div>
+    </div>
+    <div class="flag-card">
+      <div class="n">破綻 02</div>
+      <div class="t">沒有 HTTPS 鎖頭</div>
+      <div class="d">網址是 http:// 而非 https://，正規服務的登入頁幾乎不可能沒有加密。</div>
+    </div>
+    <div class="flag-card">
+      <div class="n">破綻 03</div>
+      <div class="t">「重新驗證身分」的急迫話術</div>
+      <div class="d">製造急迫與恐懼，是社交工程最常見的觸發點，目的是讓你來不及思考。</div>
+    </div>
+    <div class="flag-card">
+      <div class="n">破綻 04</div>
+      <div class="t">原始碼可被任何人複製</div>
+      <div class="d">攻擊者只要「另存網頁」或檢視原始碼，就能在幾分鐘內複製出視覺上一模一樣的假頁。</div>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <button class="tool-btn" onclick="openSource()">🔍 檢視原始碼：攻擊者如何輕易複製此頁</button>
+    <button class="tool-btn reset" onclick="resetAll()">↺ 重置示範</button>
+  </div>
+</div>
+
+<!-- ============ 原始碼 Modal ============ -->
+<div class="modal" id="srcModal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h4>檢視原始碼 — 釣魚頁的核心其實只有幾行</h4>
+      <button class="modal-close" onclick="closeSource()">×</button>
+    </div>
+    <div class="modal-body">
+      <p>下面是「擷取輸入」的關鍵程式。重點不是教你寫，而是讓你理解：<b>視覺上像不像，跟安不安全完全是兩回事</b>。任何頁面都能被複製，唯一可信的是網址與憑證機制。</p>
+      <pre><span class="cmt">// 攻擊者只需要監聽輸入框，就能拿到你打的每個字</span>
+<span class="cmt">// （本示範刻意「不」加任何網路傳送的程式碼）</span>
+emailInput.addEventListener('input', e =&gt; {
+    const stolen = e.target.value;          <span class="cmt">// ← 你的帳號</span>
+    showOnAttackerPanel(stolen);            <span class="grn">// 本示範：只顯示在本機</span>
+    <span class="hot">// sendToAttacker(stolen);              // ← 真實攻擊會做這件事（本檔不實作）</span>
+});
+
+pwdInput.addEventListener('input', e =&gt; {
+    const stolenPwd = e.target.value;       <span class="cmt">// ← 你的密碼（明文）</span>
+    showOnAttackerPanel(stolenPwd);
+});</pre>
+      <p>防禦啟示：因為頁面本身永遠可被複製，<b>判斷真偽唯一可靠的依據是「網址 + 來源驗證」</b>，而不是「看起來像不像」。請改用密碼管理員（它會因網址不符而拒填）、硬體金鑰（FIDO2）等「綁定網域」的機制。</p>
+    </div>
+  </div>
+</div>
+
+<div class="footer-note">
+  本頁為資訊安全教育示範 · 虛構品牌 CloudVault · 全程於瀏覽器本機執行 · 無任何網路傳輸 · 不蒐集、不儲存、不外傳任何資料<br>
+  逢甲大學資工系學士後專班 — 資訊安全期末報告（教育用途，禁止用於實際攻擊）
+</div>
+
+<script>
+/* =====================================================================
+   以下所有程式僅在本機執行：把使用者在左側輸入的內容，
+   即時「鏡射」到右側攻擊者面板，用來演示攻擊者能看到什麼。
+   ★ 全程沒有任何 fetch / XMLHttpRequest / form submit ★
+   ===================================================================== */
+const emailInput = document.getElementById('email');
+const pwdInput   = document.getElementById('pwd');
+const capEmail   = document.getElementById('capEmail');
+const capPwd     = document.getElementById('capPwd');
+const logBox     = document.getElementById('log');
+const meta       = document.getElementById('meta');
+const postAttack = document.getElementById('postAttack');
+
+let logLines = [];
+
+/* 即時鏡射：使用者每打一個字就更新攻擊者面板 */
+function mirror(){
+  const e = emailInput.value;
+  const p = pwdInput.value;
+
+  capEmail.textContent = e || '（等待受害者輸入…）';
+  capEmail.classList.toggle('empty', !e);
+
+  // 密碼以明文顯示，強調「攻擊者拿到的是明文」這個重點
+  capPwd.textContent = p || '（等待受害者輸入…）';
+  capPwd.classList.toggle('empty', !p);
+
+  // 鍵盤側錄記錄
+  const ts = new Date().toLocaleTimeString('zh-TW',{hour12:false});
+  if(e || p){
+    logLines.push(`[${ts}] 擷取 → 帳號:"${e}"  密碼:"${p}"`);
+    if(logLines.length > 40) logLines.shift();
+    logBox.textContent = logLines.join('\n');
+    logBox.scrollTop = logBox.scrollHeight;
+  }
+}
+
+/* 按下「登入」：模擬攻擊「完成」的瞬間 */
+function capture(){
+  const e = emailInput.value, p = pwdInput.value;
+  if(!e || !p){
+    alert('（示範）請先在左側輸入帳號與密碼，再按登入，以便觀察攻擊者視角。');
+    return;
+  }
+  [capEmail,capPwd].forEach(el=>el.classList.add('captured-flash'));
+  setTimeout(()=>[capEmail,capPwd].forEach(el=>el.classList.remove('captured-flash')),600);
+
+  meta.innerHTML =
+    '狀態：<span class="ok">✔ 憑證已擷取（模擬）</span><br>' +
+    '在真實攻擊中，此刻資料已外傳：<br>' +
+    '&nbsp;&nbsp;<span class="ok">→ POST /collect  帳號＋密碼</span><br>' +
+    '&nbsp;&nbsp;→ 自動登入真實服務<br>' +
+    '&nbsp;&nbsp;→ 轉址回官網，受害者毫無察覺';
+
+  postAttack.classList.add('show');
+}
+
+/* 重置示範 */
+function resetAll(){
+  emailInput.value = '';
+  pwdInput.value = '';
+  logLines = [];
+  capEmail.textContent = '（等待受害者輸入…）'; capEmail.classList.add('empty');
+  capPwd.textContent   = '（等待受害者輸入…）'; capPwd.classList.add('empty');
+  logBox.innerHTML = '// 監聽中<span class="blink">_</span>';
+  meta.innerHTML =
+    '狀態：<span style="color:var(--atk-hot)">尚未送出</span><br>' +
+    '若這是真實攻擊，下一步會：<br>' +
+    '&nbsp;&nbsp;→ 將上述資料 POST 到攻擊者伺服器<br>' +
+    '&nbsp;&nbsp;→ 自動嘗試登入真正的服務<br>' +
+    '&nbsp;&nbsp;→ 把受害者轉址到真網站以免起疑';
+  postAttack.classList.remove('show');
+}
+
+/* 原始碼 Modal */
+function openSource(){ document.getElementById('srcModal').classList.add('show'); }
+function closeSource(){ document.getElementById('srcModal').classList.remove('show'); }
+document.getElementById('srcModal').addEventListener('click', e=>{
+  if(e.target.id === 'srcModal') closeSource();
+});
+</script>
+</body>
+</html>
