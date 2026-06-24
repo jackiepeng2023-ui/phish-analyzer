@@ -10,7 +10,7 @@ import re
 st.set_page_config(page_title="PhishAnalyzer - 釣魚 URL 教育分析器", page_icon="🛡️", layout="wide")
 
 st.title("🛡️ PhishAnalyzer")
-st.caption("釣魚網站 URL 特徵分析工具（教育用途）｜計算機概論期末報告 Demo")
+st.caption("釣魚網站 URL 特徵分析工具（教育用途）｜期末報告 Demo")
 
 tab1, tab2 = st.tabs(["🔍 URL 特徵分析（規則為主）", "🤖 AI 協作 Prompt 展示區"])
 
@@ -117,7 +117,6 @@ with tab2:
     with st.expander("Prompt 1：生成釣魚網站 HTML Demo（教育版）"):
         st.code("""You are an expert information security educator for an Introduction to Computer Science course in Taiwan. 
 Create a complete, single-file HTML educational demo that simulates a phishing website attack on a Taiwanese bank login page.
-
 Requirements:
 - Strong, visible disclaimers that this is 100% educational and simulated
 - Split-screen layout: Victim view (realistic login form) + Attacker dashboard (real-time captured credentials)
@@ -131,7 +130,7 @@ Requirements:
 Output only the complete HTML code.""", language="text")
     
     with st.expander("Prompt 2：分析可疑 URL 並給出教育性解釋"):
-        st.code("""請以計算機概論學生的程度，用繁體中文詳細解釋為什麼以下 URL 可能是釣魚網站，並給出具體防禦建議：
+        st.code("""請以逢甲資工系學生的程度，用繁體中文詳細解釋為什麼以下 URL 可能是釣魚網站，並給出具體防禦建議：
 
 https://taiwan-bank-login-secure-verify.com/update?session=abc123
 
