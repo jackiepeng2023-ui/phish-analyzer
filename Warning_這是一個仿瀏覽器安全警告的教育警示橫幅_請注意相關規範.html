@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>教育警示橫幅示範</title>
+  <style>
+    /* 1. 定義顏色變數 (讓原本的 CSS 能讀取到顏色) */
+    :root {
+      --warn: #ffcc00;       /* 警示黃色 */
+      --warn-ink: #1a1400;   /* 深色文字，與條紋背景的深色呼應 */
+    }
+
+    /* 2. 基本網頁重置 (僅為展示用) */
+    body {
+      margin: 0;
+      font-family: "Helvetica Neue", Helvetica, Arial, "PingFang TC", "Heiti TC", "Microsoft JhengHei", sans-serif;
+      background-color: #f0f0f0;
+    }
+
+    /* 3. 你提供的 CSS 代碼 */
+    /* ---------- 頂部教育警示橫幅（仿瀏覽器安全警告） ---------- */
+    .edu-banner{
+      background:repeating-linear-gradient(45deg,var(--warn),var(--warn) 18px,#1a1400 18px,#1a1400 36px);
+      padding:3px;
+    }
+    .edu-banner-inner{
+      background:var(--warn);
+      color:var(--warn-ink);
+      padding:10px 18px;
+      font-weight:800;
+      font-size:14px;
+      display:flex;gap:10px;align-items:center;justify-content:center;
+      text-align:center;flex-wrap:wrap;
+    }
+    .edu-banner-inner b{text-transform:uppercase;letter-spacing:.5px}
+  </style>
+</head>
+<body>
+
+  <div class="edu-banner">
+    <div class="edu-banner-inner">
+      <span>⚠️</span>
+      <span><b>Warning:</b> 這是一個仿瀏覽器安全警告的教育警示橫幅。請注意相關規範。</span>
+    </div>
+  </div>
+
+</body>
+</html>
